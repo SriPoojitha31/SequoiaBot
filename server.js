@@ -50,7 +50,11 @@ const cron = require('node-cron');
 const SentimentModel = require('./models/Sentiment.js');
 
 // Connect to MongoDB
-mongoose.connect(MONGODB_URI)
+mongoose.connect(MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    serverSelectionTimeoutMS: 30000, // increase timeout
+  });
     .then(() => console.log("✅ MongoDB Connected Successfully"))
     .catch(err => console.log('❌ MongoDB Connection Error:', err));
 

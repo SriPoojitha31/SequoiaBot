@@ -1,0 +1,25 @@
+{
+  "name": "tele_bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "axios": "^1.8.4",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mongoose": "^8.12.1",
+    "node-cron": "^3.0.3",
+    "node-telegram-bot-api": "^0.66.0",
+    "node-telegram-keyboard-wrapper": "^3.1.0",
+    "openai": "^4.89.0",
+    "puppeteer": "^24.4.0",
+    "sentiment": "^5.0.2",
+    "uuid": "^11.1.0"
+  }
+}

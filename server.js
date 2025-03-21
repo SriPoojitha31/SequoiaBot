@@ -1,6 +1,7 @@
 const rateLimitMap = new Map();
 require("dotenv").config();
 const express = require("express");
+const bodyParser = require('body-parser');
 const TelegramBot = require("node-telegram-bot-api");
 const mongoose = require("mongoose");
 const OpenAI = require("openai");
@@ -9,9 +10,10 @@ const { getDiscussionPrompt } = require('./prompts.js');
 const {UserStats} = require("./models/UserStats.js");
 
 const TOKEN = process.env.BOT_TOKEN;
+const BOT_URL = process.env.BOT_URL;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/sridb";
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000;
 const API_ENDPOINT = process.env.API_ENDPOINT || "https://api.example.com/ask";
 const API_KEY = process.env.API_KEY;
 
@@ -21,6 +23,10 @@ const REQUEST_TIME_WINDOW = 60 * 1000; // 1 minute in milliseconds
 
 const adminIds = [5559338907];
 const groupId = '-1002570334546';
+
+const bot = new TelegramBot(process.env.BOT_TOKEN); // ✅ keep this one (for webhook)
+bot.setWebHook(`${process.env.BOT_URL}/bot${process.env.BOT_TOKEN}`);
+
 
 // Queue to manage requests
 const requestQueue = [];
@@ -74,9 +80,6 @@ const userSchema = new mongoose.Schema({
     }
 });
 const User = mongoose.model("User", userSchema);
-
-// Initialize Telegram Bot
-const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
 const userStates = {};
 
@@ -699,6 +702,6 @@ app.get('/', (req, res) => {
 });
 
 //Start server
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+app.listen(10000, () => {
+    console.log("Server running on port 10000");
+  });

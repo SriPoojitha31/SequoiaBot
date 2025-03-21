@@ -105,6 +105,8 @@ async function callAiApi(userMessage) {
     }
 }
 
+bot.launch();
+
 async function callExternalAiApi(userMessage) {
     try {
         const response = await axios.post(API_ENDPOINT, {

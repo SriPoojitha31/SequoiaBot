@@ -53,11 +53,11 @@ const SentimentModel = require('./models/Sentiment.js');
 mongoose.connect(MONGODB_URI, {
     useNewUrlParser: true,
     useUnifiedTopology: true,
-    serverSelectionTimeoutMS: 30000, // increase timeout
-  });
-    .then(() => console.log("✅ MongoDB Connected Successfully"))
-    .catch(err => console.log('❌ MongoDB Connection Error:', err));
-
+    serverSelectionTimeoutMS: 30000 // Optional but useful
+  })
+  .then(() => console.log("✅ MongoDB Connected Successfully"))
+  .catch(err => console.log('❌ MongoDB Connection Error:', err));
+  
 // Define User Schema & Model
 const userSchema = new mongoose.Schema({
     telegramId: {

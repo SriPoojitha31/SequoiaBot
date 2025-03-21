@@ -31,13 +31,15 @@ cd SequoiaBot
 npm install
 npm start
 
-## Deployment 
+## 👾 Deployment 
 Deployed on Render
 Live: https://sequoia-bot.onrender.com
 
-## Screenshots
-
-##Contact
+## 📸 Screenshots
+Screenshots/AIresponse.png
+ Screenshots/scheduledannouncementandadmin.png 
+ Screenshots/Welcome.png
+## 📲 Contact
 Linkdin:www.linkedin.com/in/sri-poojitha-jorige-377270294
 
 Created with 💙 by SriPoojitha31

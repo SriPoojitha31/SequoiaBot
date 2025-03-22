@@ -32,6 +32,7 @@ const URL = "https://sequoia-bot.onrender.com"; // Hosting URL
 const adminIds = [5559338907];
 const MAX_REQUESTS_PER_MINUTE = 5;
 const groupId = "-1002570334546";
+const userStates = {};
 const rateLimitMap = new Map();
 const requestQueue = [];
 let isProcessingRequests = false;

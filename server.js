@@ -131,6 +131,34 @@ async function callAiApi(userMessage) {
     }
   }
 
+  async function sendAnnouncement(announcementText) {
+    const users = await User.find({}, 'telegramId');
+    let successCount = 0, failCount = 0;
+
+    for (const user of users) {
+        if (!user.telegramId) {
+            failCount++;
+            continue;
+        }
+
+        try {
+            await bot.sendMessage(
+                user.telegramId,
+                `📢 *Announcement:*\n\n${announcementText}`,
+                { parse_mode: "Markdown" }
+            );
+            successCount++;
+        } catch {
+            failCount++;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    return { successCount, failCount };
+}
+
+
 // ✅ Trending Prompt Every Evening at 6 PM
 cron.schedule('0 18 * * *', async () => {
     const prompt = await getDiscussionPrompt();
@@ -377,48 +405,50 @@ bot.onText(/\/announce (.+)/, async (msg, match) => {
         return bot.sendMessage(chatId, "🚫 You are not authorized to send announcements.");
     }
 
-    const announcement = match[1]; // Extract message after "/announce"
+    const announcement = match[1];
 
     try {
-        const users = await User.find({}, 'telegramId'); // Get all users' IDs
+        const users = await User.find({}, 'telegramId');
 
         if (users.length === 0) {
-            return bot.sendMessage(chatId, "⚠️ No users found to send the announcement.");
+            return bot.sendMessage(chatId, "⚠️ No users found in the database.");
         }
 
         let successCount = 0;
         let failCount = 0;
 
         for (const user of users) {
-            if (!user.telegramId) {
-                console.warn(`⚠️ Skipping user with missing telegramId:`, user);
+            const userId = user.telegramId;
+
+            if (!userId) {
+                console.warn(`⚠️ Missing telegramId for user:`, user);
                 failCount++;
                 continue;
             }
 
             try {
                 await bot.sendMessage(
-                    user.telegramId, 
-                    `📢 *Announcement:*\n\n${announcement}`, 
+                    userId,
+                    `📢 *Announcement:*\n\n${announcement}`,
                     { parse_mode: "Markdown" }
                 );
                 successCount++;
             } catch (err) {
-                console.error(`❌ Error sending to ${user.telegramId}:`, err);
+                console.error(`❌ Failed to send to ${userId}:`, err.message);
                 failCount++;
             }
-            
-            // Delay to avoid hitting Telegram API limits
+
+            // Slight delay to avoid flooding
             await new Promise(resolve => setTimeout(resolve, 100));
         }
 
         bot.sendMessage(
-            chatId, 
-            `✅ Announcement sent to ${successCount} users! (Failed: ${failCount})`
+            chatId,
+            `✅ Announcement sent to ${successCount} users! (❌ Failed: ${failCount})`
         );
     } catch (error) {
-        console.error("❌ Error sending announcement:", error);
-        bot.sendMessage(chatId, "⚠️ Failed to send the announcement.");
+        console.error("❌ Error during announcement broadcast:", error);
+        bot.sendMessage(chatId, "⚠️ An error occurred while sending the announcement.");
     }
 });
 
@@ -604,52 +634,36 @@ Please wait before asking another question.
 });
 
 // Auto Welcome Message for new chat members
-bot.on('new_chat_members', async (msg) => {
+bot.on("new_chat_members", async (msg) => {
     const chatId = msg.chat.id;
     const newMembers = msg.new_chat_members;
 
-    for (const user of newMembers) {
+    for (const member of newMembers) {
+        const telegramId = member.id;
+        const username = member.username || "Unknown";
+        const name = member.first_name || "User";
+
         try {
-            let existingUser = await User.findOne({ telegramId: user.id });
+            // Check if the user is already registered
+            let user = await User.findOne({ telegramId });
 
-            if (!existingUser) {
-                existingUser = new User({
-                    telegramId: user.id,
-                    name: user.first_name,
-                    username: user.username || "N/A",
-                    role: "Member" // Default role for new users
-                });
-
-                await existingUser.save();
-                console.log(`✅ New user added: ${user.first_name}`);
+            if (!user) {
+                // Register new user
+                user = new User({ telegramId, username, name });
+                await user.save();
+                console.log(`✅ New user registered: ${username}`);
             }
 
-            // Role-Based Welcome Message
-            let welcomeMessage = `👋 Welcome, *${user.first_name}*! 🎉`;
-
-            if (existingUser.role === "Admin") {
-                welcomeMessage += `\n\nYou're an *Admin*! 🚀 Let us know if you need anything.`;
-            } else {
-                welcomeMessage += `\n\nYou're a valued *Member* of this community! 🎯`;
-            }
-
-            // Inline Buttons for Rules & Community Guidelines
-            const keyboard = {
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: "📜 View Community Rules", url: "https://example.com/rules" }],
-                        [{ text: "🔹 About Us", url: "https://example.com/about" }]
-                    ]
-                }
-            };
-
-            bot.sendMessage(chatId, welcomeMessage, { parse_mode: "Markdown", ...keyboard });
-
+            // Send a welcome message to the new member
+            const welcomeMessage = `👋 Welcome, ${name}! You've been successfully registered to use this bot.`;
+            await bot.sendMessage(chatId, welcomeMessage);
         } catch (error) {
-            console.error("❌ Error adding new user:", error);
+            console.error(`❌ Error registering new member (${telegramId}):`, error.message);
+            await bot.sendMessage(chatId, "⚠️ An error occurred during registration. Please try again later.");
         }
     }
 });
+
 
 console.log("Bot object:", bot);
 

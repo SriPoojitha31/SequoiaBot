@@ -503,11 +503,19 @@ bot.onText(/\/leaderboard/, async (msg) => {
   try {
     const topUsers = await UserStats.find({})
       .sort({ points: -1 })
-      .limit(10);
+      .limit(10)
+      .lean(); // lean() makes it faster and cleaner
+
+    if (!topUsers || topUsers.length === 0) {
+      return bot.sendMessage(chatId, "📉 No leaderboard data found yet.");
+    }
 
     let leaderboardText = "🏆 *Leaderboard: Top Users by Points*\n\n";
     topUsers.forEach((user, index) => {
-      leaderboardText += `${index + 1}. ${user.firstName || 'User'} (@${user.username || 'N/A'}) – ${user.points} pts\n`;
+      const firstName = user.firstName || "User";
+      const username = user.username ? `@${user.username}` : "N/A";
+      const points = user.points || 0;
+      leaderboardText += `${index + 1}. *${firstName}* (${username}) – ${points} pts\n`;
     });
 
     bot.sendMessage(chatId, leaderboardText, { parse_mode: "Markdown" });
@@ -516,7 +524,6 @@ bot.onText(/\/leaderboard/, async (msg) => {
     bot.sendMessage(chatId, "⚠️ Couldn't fetch leaderboard. Try again later.");
   }
 });
-
 
 console.log("Bot object:", bot);
 

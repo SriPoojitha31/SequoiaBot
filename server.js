@@ -1,267 +1,208 @@
-const rateLimitMap = new Map();
-require('dotenv').config();
-
+// Required Modules
+require("dotenv").config();
 const express = require("express");
-const bodyParser = require('body-parser');
-const TelegramBot = require("node-telegram-bot-api"); // optional, depends if you're using this elsewhere
+const bodyParser = require("body-parser");
+const TelegramBot = require("node-telegram-bot-api");
 const mongoose = require("mongoose");
 const OpenAI = require("openai");
 const axios = require("axios");
-const { getDiscussionPrompt } = require('./prompts.js');
-const { UserStats } = require("./models/UserStats.js");
+const cron = require("node-cron");
+const Sentiment = require("sentiment");
+const sentiment = new Sentiment();
 
+const { getDiscussionPrompt } = require("./prompts.js");
+const { UserStats } = require("./models/UserStats.js");
+const { getMotivationalQuote } = require("./motivation.js");
+const SentimentModel = require("./models/Sentiment.js");
+
+// Environment Variables
 const TOKEN = process.env.BOT_TOKEN;
 const BOT_URL = process.env.BOT_URL;
 const MONGODB_URI = process.env.MONGODB_URI;
 const PORT = process.env.PORT || 10000;
-const API_ENDPOINT = process.env.API_ENDPOINT || "https://api.example.com/ask";
 const API_KEY = process.env.API_KEY;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
+const URL = "https://sequoia-bot.onrender.com";
 
-// Rate limiting configuration
-const MAX_REQUESTS_PER_MINUTE = 5;
-const REQUEST_TIME_WINDOW = 60 * 1000; // 1 minute in milliseconds
-
+// Group & Admin Config
 const adminIds = [5559338907];
-const groupId = '-1002570334546';
-
-const bot = new TelegramBot(process.env.BOT_TOKEN,{polling: false}); // ✅ keep this one (for webhook)
-
-// Queue to manage requests
+const groupId = "-1002570334546";
+const MAX_REQUESTS_PER_MINUTE = 5;
+const REQUEST_TIME_WINDOW = 60 * 1000; // 1 minute
+const rateLimitMap = new Map();
+const userStates = {};
 const requestQueue = [];
 let isProcessingRequests = false;
 
-
-
-// Initialize Express app
+// Initialize Express and Telegram Bot
 const app = express();
 app.use(express.json());
 
-const Sentiment = require('sentiment');
-const sentiment = new Sentiment();
-
-const { getMotivationalQuote } = require('./motivation.js');
-
-const cron = require('node-cron');
-const SentimentModel = require('./models/Sentiment.js');
-
-const URL = 'https://sequoia-bot.onrender.com';
+const bot = new TelegramBot(TOKEN, { polling: false });
 bot.setWebHook(`${URL}/bot${TOKEN}`);
-// Connect to MongoDB
+
+// MongoDB Connection
 mongoose.connect(MONGODB_URI)
   .then(() => console.log("✅ MongoDB connected"))
   .catch((err) => console.error("❌ MongoDB connection error:", err));
-  
-// Define User Schema & Model
+
+// User Schema
 const userSchema = new mongoose.Schema({
-    telegramId: {
-        type: Number,
-        required: true,
-        unique: true
-    },
-    username: {
-        type: String,
-    },
-    name: {
-        type: String,
-    },
-    email: {
-        type: String,
-    },
-    role: {
-        type: String,
-        default: "Member"
-    },
-    joinedAt: {
-        type: Date,
-        default: Date.now
-    }
+  telegramId: { type: Number, required: true, unique: true },
+  username: String,
+  name: String,
+  email: String,
+  role: { type: String, default: "Member" },
+  joinedAt: { type: Date, default: Date.now },
 });
 const User = mongoose.model("User", userSchema);
 
-const userStates = {};
+// Chat Log Schema
+const ChatLog = mongoose.model("ChatLog", new mongoose.Schema({
+  telegramId: Number,
+  message: String,
+  timestamp: Date
+}));
 
-const ChatLog = mongoose.model('ChatLog', new mongoose.Schema({
-    telegramId: Number,
-    message: String,
-    timestamp: Date
-  }));
-  
-// AI API Function with OpenRouter + HuggingFace fallback
+// AI API Handler
 async function callAiApi(userMessage) {
-    try {
-      console.log("Calling OpenRouter...");
-      const response = await axios.post(
-        'https://openrouter.ai/api/v1/chat/completions',
-        {
-          model: "openai/gpt-3.5-turbo",
-          messages: [
-            { role: "system", content: "You are a helpful assistant." },
-            { role: "user", content: userMessage }
-          ]
+  try {
+    console.log("Calling OpenRouter...");
+    const response = await axios.post(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        model: "openai/gpt-3.5-turbo",
+        messages: [
+          { role: "system", content: "You are a helpful assistant." },
+          { role: "user", content: userMessage },
+        ],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://your-site-url.com",
+          "X-Title": "Telegram Bot",
         },
+      }
+    );
+
+    return response.data.choices[0].message.content;
+  } catch (err) {
+    console.error("OpenRouter failed:", err.message);
+    try {
+      console.log("Fallback: Hugging Face API");
+      const fallback = await axios.post(
+        "https://api-inference.huggingface.co/models/google/flan-t5-xxl",
+        { inputs: userMessage },
         {
           headers: {
-            'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://your-site-url.com',
-            'X-Title': 'Telegram Bot'
-          }
+            Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
         }
       );
-  
-      return response.data.choices[0].message.content;
-    } catch (err) {
-      console.error("OpenRouter failed:", err.message);
-  
-      // Fallback to HuggingFace
-      try {
-        console.log("Fallback: Hugging Face API");
-        const fallback = await axios.post(
-          "https://api-inference.huggingface.co/models/google/flan-t5-xxl",
-          { inputs: userMessage },
-          {
-            headers: {
-              Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
-              "Content-Type": "application/json"
-            }
-          }
-        );
-  
-        return fallback.data[0]?.generated_text || "⚠️ No response from Hugging Face.";
-      } catch (hfError) {
-        console.error("Hugging Face failed too:", hfError.message);
-        return "❌ Both AI services failed. Please try again later.";
-      }
+      return fallback.data[0]?.generated_text || "⚠️ No response from Hugging Face.";
+    } catch (hfError) {
+      console.error("Hugging Face failed too:", hfError.message);
+      return "❌ Both AI services failed. Please try again later.";
     }
   }
-
-  async function sendAnnouncement(announcementText) {
-    const users = await User.find({}, 'telegramId');
-    let successCount = 0, failCount = 0;
-
-    for (const user of users) {
-        if (!user.telegramId) {
-            failCount++;
-            continue;
-        }
-
-        try {
-            await bot.sendMessage(
-                user.telegramId,
-                `📢 *Announcement:*\n\n${announcementText}`,
-                { parse_mode: "Markdown" }
-            );
-            successCount++;
-        } catch {
-            failCount++;
-        }
-
-        await new Promise(resolve => setTimeout(resolve, 100));
-    }
-
-    return { successCount, failCount };
 }
 
+// Send Announcement
+async function sendAnnouncement(announcementText) {
+  const users = await User.find({}, "telegramId");
+  let successCount = 0, failCount = 0;
 
-// ✅ Trending Prompt Every Evening at 6 PM
-cron.schedule('0 18 * * *', async () => {
-    const prompt = await getDiscussionPrompt();
-    bot.sendMessage(groupId, `🔥 *Trending Prompt of the Day:*\n\n${prompt}`, { parse_mode: "Markdown" });
-});
-
-cron.schedule('0 21 * * *', async () => {
+  for (const user of users) {
     try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-  
-      const data = await SentimentModel.find({
-        timestamp: { $gte: today }
-      });
-  
-      const total = data.length;
-      const pos = data.filter(d => d.sentiment === 'positive').length;
-      const neg = data.filter(d => d.sentiment === 'negative').length;
-      const neu = data.filter(d => d.sentiment === 'neutral').length;
-  
-      const summary = `📊 *Daily Sentiment Summary*
-  Positive: ${pos}
-  Negative: ${neg}
-  Neutral: ${neu}
-  Total Messages Analyzed: ${total}`;
-  
-      // Replace with your actual group chat ID
-      const GROUP_ID = process.env.TELEGRAM_GROUP_ID || 'your_group_chat_id';
-      await bot.sendMessage(GROUP_ID, summary, { parse_mode: 'Markdown' });
-    } catch (error) {
-      console.error("Cron job failed:", error.message);
+      if (!user.telegramId) throw new Error();
+      await bot.sendMessage(user.telegramId, `📢 *Announcement:*\n\n${announcementText}`, { parse_mode: "Markdown" });
+      successCount++;
+    } catch {
+      failCount++;
     }
-});
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
 
-cron.schedule('0 10 * * *', () => {
-    bot.sendMessage(groupId, "🗓️ Here's your daily dose of motivation! Go rock it! 🚀");
-  });
+  return { successCount, failCount };
+}
 
-// ✅ Schedule a motivational message every day at 10 AM
-cron.schedule('0 10 * * *', () => {
-    const quote = getMotivationalQuote();
-    bot.sendMessage(groupId, `💬 *Motivation of the Day:*\n\n${quote}`, { parse_mode: "Markdown" });
-});
-
-// Schedule leaderboard announcement every day at 6 PM
+// Cron Jobs
 cron.schedule("0 18 * * *", async () => {
-    try {
-      const leaderboard = await SentimentModel.aggregate([
-        {
-          $group: {
-            _id: "$userId",
-            score: { $sum: "$score" },
-            username: { $first: "$username" },
-          },
+  const prompt = await getDiscussionPrompt();
+  bot.sendMessage(groupId, `🔥 *Trending Prompt of the Day:*\n\n${prompt}`, { parse_mode: "Markdown" });
+});
+
+cron.schedule("0 21 * * *", async () => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const data = await SentimentModel.find({ timestamp: { $gte: today } });
+    const total = data.length;
+    const pos = data.filter(d => d.sentiment === 'positive').length;
+    const neg = data.filter(d => d.sentiment === 'negative').length;
+    const neu = data.filter(d => d.sentiment === 'neutral').length;
+
+    const summary = `📊 *Daily Sentiment Summary*\nPositive: ${pos}\nNegative: ${neg}\nNeutral: ${neu}\nTotal Messages Analyzed: ${total}`;
+    const GROUP_ID = process.env.TELEGRAM_GROUP_ID || groupId;
+    await bot.sendMessage(GROUP_ID, summary, { parse_mode: "Markdown" });
+  } catch (error) {
+    console.error("Cron job failed:", error.message);
+  }
+});
+
+cron.schedule("0 10 * * *", () => {
+  const quote = getMotivationalQuote();
+  bot.sendMessage(groupId, `💬 *Motivation of the Day:*\n\n${quote}`, { parse_mode: "Markdown" });
+});
+
+cron.schedule("0 18 * * *", async () => {
+  try {
+    const leaderboard = await SentimentModel.aggregate([
+      {
+        $group: {
+          _id: "$userId",
+          score: { $sum: "$score" },
+          username: { $first: "$username" },
         },
-        { $sort: { score: -1 } },
-        { $limit: 5 },
-      ]);
-  
-      if (!leaderboard || leaderboard.length === 0) {
-        console.log("📉 No sentiment data yet for leaderboard.");
-        return;
-      }
-  
-      const topUser = leaderboard[0]; // safe access
-      const message = `🏆 *Leaderboard*\n\n` + leaderboard.map((u, i) =>
-        `#${i + 1} @${u.username} — ${u.score} points`).join("\n");
-  
-      bot.sendMessage(groupId, message, { parse_mode: "Markdown" });
-  
-    } catch (error) {
-      console.error("❌ Failed to post leaderboard:", error);
-    }
-  });
-  
-//Start command
+      },
+      { $sort: { score: -1 } },
+      { $limit: 5 },
+    ]);
+
+    if (!leaderboard || leaderboard.length === 0) return;
+
+    const message = `🏆 *Leaderboard*\n\n` + leaderboard.map((u, i) => `#${i + 1} @${u.username} — ${u.score} points`).join("\n");
+    bot.sendMessage(groupId, message, { parse_mode: "Markdown" });
+  } catch (error) {
+    console.error("❌ Failed to post leaderboard:", error);
+  }
+});
+
+// /start Command
 bot.onText(/\/start/, async (msg) => {
-    const chatId = msg.chat.id;
-    const telegramId = msg.from.id;
-    const username = msg.from.username || "Unknown";
-    const name = msg.from.first_name || "User";
+  const chatId = msg.chat.id;
+  const telegramId = msg.from.id;
+  const username = msg.from.username || "Unknown";
+  const name = msg.from.first_name || "User";
 
-    try {
-        let user = await User.findOne({ telegramId });
-
-        if (!user) {
-            user = new User({ telegramId, username, name });
-            await user.save();
-            console.log("✅ New user registered:", username);
-        }
-
-        const welcomeMessage = `👋 Welcome, ${name}! You are now registered to use the bot.`;
-        bot.sendMessage(chatId, welcomeMessage);
-    } catch (error) {
-        console.error("❌ Error during registration:", error.message);
-        bot.sendMessage(chatId, "⚠️ Error registering user. Please try again later.");
+  try {
+    let user = await User.findOne({ telegramId });
+    if (!user) {
+      user = new User({ telegramId, username, name });
+      await user.save();
+      console.log("✅ New user registered:", username);
     }
+    const welcomeMessage = `👋 Welcome, ${name}! You are now registered to use the bot.`;
+    bot.sendMessage(chatId, welcomeMessage);
+  } catch (error) {
+    console.error("❌ Error during registration:", error.message);
+    bot.sendMessage(chatId, "⚠️ Error registering user. Please try again later.");
+  }
 });
 
 
@@ -293,18 +234,21 @@ Note: You can ask up to ${MAX_REQUESTS_PER_MINUTE} questions per minute.
 });
 
 //FAQ command
-bot.onText(/\/faq/, (msg) => {
+const faqs = {
+    "how to use the bot": "Use /start to register, then interact with me directly in chat or group. Try asking a question!",
+    "who can make announcements": "Only admins can use the /announce command.",
+    "how to earn points": "Be active, engage in group chats, and post positively!"
+  };
+  
+  bot.onText(/\/faq/, (msg) => {
     const chatId = msg.chat.id;
-    const faqText = `
-*Frequently Asked Questions:*
-1. _How do I register?_ – Just say "hi" to the bot!
-2. _How can I get updates?_ – You’ll receive them automatically once registered.
-3. _Who can post announcements?_ – Only admins.
-
-Use /help to see all commands.
-`;
-  bot.sendMessage(msg.chat.id, faqText, { parse_mode: "Markdown" });
-});
+    let faqText = "📖 *Frequently Asked Questions:*\n\n";
+    for (const [q, a] of Object.entries(faqs)) {
+      faqText += `❓ *${q}*\n➡️ ${a}\n\n`;
+    }
+    bot.sendMessage(chatId, faqText, { parse_mode: "Markdown" });
+  });
+  
 
 // Handle onboarding, sentiment tracking, and engagement
 bot.on("message", async (msg) => {

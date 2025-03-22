@@ -159,12 +159,15 @@ bot.onText(/\/start/, async (msg) => {
       await user.save();
       console.log("✅ New user registered:", username);
     }
-    bot.sendMessage(chatId, `👋 Welcome, ${name}! You are now registered to use the bot.`);
+    // 🔽 Fix: Make sure name has a value
+    const welcomeMsg = `👋 Welcome, ${name || "there"}! You are now registered to use the bot.`;
+    bot.sendMessage(chatId, welcomeMsg);
   } catch (error) {
     console.error("❌ Error during registration:", error.message);
     bot.sendMessage(chatId, "⚠️ Error registering user. Please try again later.");
   }
 });
+
 
 // ===== /help Command =====
 bot.onText(/\/help/, (msg) => {
@@ -218,10 +221,17 @@ bot.onText(/\/announce (.+)/, async (msg, match) => {
     return bot.sendMessage(chatId, "🚫 You are not authorized to send announcements.");
   }
 
-  const announcementText = match[1].trim();
+  const announcementText = (match[1] || "").trim();
+
+  // 🔽 Fix: Validate announcement text
+  if (!announcementText) {
+    return bot.sendMessage(chatId, "⚠️ Please provide a valid announcement message.");
+  }
+
   const { successCount, failCount } = await sendAnnouncement(announcementText);
   bot.sendMessage(chatId, `✅ Announcement sent!\n📬 Success: ${successCount}, ❌ Failed: ${failCount}`);
 });
+
 //------------------------------------------------------
 // Handle onboarding, sentiment tracking, and engagement
 //-------------------------------------------------------
@@ -240,44 +250,41 @@ bot.on("message", async (msg) => {
   // ✅ 1. Handle Onboarding Flow
   // -----------------------------------------
   if (userStates[telegramId]) {
-      let userData = userStates[telegramId];
+    let userData = userStates[telegramId];
 
-      if (userData.step === "name") {
-          userData.name = msg.text;
-          userData.step = "email";
-          return bot.sendMessage(chatId, "📧 Great! Now enter your **Email**:");
-      } 
-      else if (userData.step === "email") {
-          userData.email = msg.text;
-          userData.step = "role";
-          return bot.sendMessage(chatId, "🛠 Awesome! What is your **Role** (e.g., Admin, Member)?");
-      } 
-      else if (userData.step === "role") {
-          userData.role = msg.text;
+    if (userData.step === "name") {
+        userData.name = msg.text;
+        userData.step = "email";
+        return bot.sendMessage(chatId, "📧 Great! Now enter your **Email**:");
+    } 
+    else if (userData.step === "email") {
+        userData.email = msg.text;
+        userData.step = "role";
+        return bot.sendMessage(chatId, "🛠 Awesome! What is your **Role** (e.g., Admin, Member)?");
+    } 
+    else if (userData.step === "role") {
+        userData.role = msg.text;
 
-          try {
-              const newUser = new User({
-                  telegramId,
-                  name: userData.name,
-                  email: userData.email,
-                  role: userData.role,
-                  username
-              });
+        try {
+            const newUser = new User({
+                telegramId,
+                name: userData.name || "Anonymous",
+                email: userData.email || "unknown@example.com",
+                role: userData.role || "Member",
+                username
+            });
 
-              await newUser.save();
-              delete userStates[telegramId];
+            await newUser.save();
+            delete userStates[telegramId];
 
-              return bot.sendMessage(
-                  chatId,
-                  `✅ *Onboarding complete!* 🎉\n\n*Your details:*\n👤 Name: ${newUser.name}\n📧 Email: ${newUser.email}\n🛠 Role: ${newUser.role}\n📛 Username: @${newUser.username}`,
-                  { parse_mode: "Markdown" }
-              );
-          } catch (error) {
-              console.error("❌ Error saving user:", error);
-              return bot.sendMessage(chatId, "⚠️ Error saving your details. Please try again.");
-          }
-      }
-  }
+            const confirmationMsg = `✅ *Onboarding complete!* 🎉\n\n*Your details:*\n👤 Name: ${newUser.name}\n📧 Email: ${newUser.email}\n🛠 Role: ${newUser.role}\n📛 Username: @${newUser.username}`;
+            return bot.sendMessage(chatId, confirmationMsg, { parse_mode: "Markdown" });
+        } catch (error) {
+            console.error("❌ Error saving user:", error);
+            return bot.sendMessage(chatId, "⚠️ Error saving your details. Please try again.");
+        }
+    }
+}
 
   // -----------------------------------------
   // ✅ 2. Sentiment Analysis (ignore commands)
@@ -333,6 +340,11 @@ bot.on("message", async (msg) => {
     });
   } catch (err) {
     console.error("❌ Chat logging failed:", err);
+  }
+  const text = msg.text;
+  if (!text || typeof text !== "string" || text.trim() === "") {
+    console.warn("⚠️ Skipping empty message:", msg);
+    return;
   }
   
 });
@@ -446,10 +458,19 @@ bot.onText(/\/ask (.+)/, async (msg, match) => {
   const chatId = msg.chat.id;
   const telegramId = msg.from.id;
   const userMessage = match[1].trim();
+  const aiResponse = await callAiApi(userMessage);
+  bot.sendMessage(chatId, aiResponse);
+
 
   // Rate Limiting
   const currentTime = Date.now();
   const userTimestamps = rateLimitMap.get(telegramId) || [];
+
+  if (!aiResponse || aiResponse.trim() === "") {
+    return bot.sendMessage(chatId, "⚠️ AI didn't return a valid response. Please try again.");
+  }
+  bot.sendMessage(chatId, aiResponse);
+  
 
   // Remove old timestamps (older than 1 minute)
   const recentTimestamps = userTimestamps.filter(ts => currentTime - ts < 60000);

@@ -1,13 +1,14 @@
 const rateLimitMap = new Map();
-require("dotenv").config();
+require('dotenv').config();
+
 const express = require("express");
 const bodyParser = require('body-parser');
-const TelegramBot = require("node-telegram-bot-api");
+const TelegramBot = require("node-telegram-bot-api"); // optional, depends if you're using this elsewhere
 const mongoose = require("mongoose");
 const OpenAI = require("openai");
 const axios = require("axios");
 const { getDiscussionPrompt } = require('./prompts.js');
-const {UserStats} = require("./models/UserStats.js");
+const { UserStats } = require("./models/UserStats.js");
 
 const TOKEN = process.env.BOT_TOKEN;
 const BOT_URL = process.env.BOT_URL;
@@ -24,9 +25,7 @@ const REQUEST_TIME_WINDOW = 60 * 1000; // 1 minute in milliseconds
 const adminIds = [5559338907];
 const groupId = '-1002570334546';
 
-const bot = new TelegramBot(process.env.BOT_TOKEN); // ✅ keep this one (for webhook)
-bot.setWebHook(`${process.env.BOT_URL}/bot${process.env.BOT_TOKEN}`);
-
+const bot = new TelegramBot(TOKEN,{polling: true}); // ✅ keep this one (for webhook)
 
 // Queue to manage requests
 const requestQueue = [];
@@ -50,13 +49,9 @@ const cron = require('node-cron');
 const SentimentModel = require('./models/Sentiment.js');
 
 // Connect to MongoDB
-mongoose.connect(MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    serverSelectionTimeoutMS: 30000 // Optional but useful
-  })
-  .then(() => console.log("✅ MongoDB Connected Successfully"))
-  .catch(err => console.log('❌ MongoDB Connection Error:', err));
+mongoose.connect(MONGODB_URI)
+  .then(() => console.log("✅ MongoDB connected"))
+  .catch((err) => console.error("❌ MongoDB connection error:", err));
   
 // Define User Schema & Model
 const userSchema = new mongoose.Schema({
@@ -104,8 +99,6 @@ async function callAiApi(userMessage) {
         throw error;
     }
 }
-
-bot.launch();
 
 async function callExternalAiApi(userMessage) {
     try {
@@ -255,8 +248,6 @@ cron.schedule("0 18 * * *", async () => {
       console.error("❌ Failed to post leaderboard:", error);
     }
   });
-  
-console.log('Bot is running with scheduled motivation!');
   
 //Start command
 bot.onText(/\/start/, async (msg) => {
@@ -701,6 +692,8 @@ bot.on('new_chat_members', async (msg) => {
         }
     }
 });
+
+console.log("Bot object:", bot);
 
 // Simple endpoint for checking server status
 app.get('/', (req, res) => {

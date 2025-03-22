@@ -15,6 +15,7 @@
     "body-parser": "^1.20.3",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "mongodb": "^6.15.0",
     "mongoose": "^8.12.1",
     "node-cron": "^3.0.3",
     "node-telegram-bot-api": "^0.66.0",
@@ -22,6 +23,7 @@
     "openai": "^4.89.0",
     "puppeteer": "^24.4.0",
     "sentiment": "^5.0.2",
+    "telegraf": "^4.16.3",
     "uuid": "^11.1.0"
   }
 }

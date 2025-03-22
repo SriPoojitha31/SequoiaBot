@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const ChatLog = require('./ChatLog');
 
 // Configuration constants (adjust as needed)
 const REQUEST_TIME_WINDOW = 60 * 1000; // 1 minute in milliseconds

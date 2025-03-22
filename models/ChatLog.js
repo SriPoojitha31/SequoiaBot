@@ -1,10 +1,10 @@
-// models/ChatLog.js
 const mongoose = require('mongoose');
 
-const chatLogSchema = new mongoose.Schema({
-    userId: String,
+const ChatLogSchema = new mongoose.Schema({
+    userId: Number,
+    username: String,
     message: String,
     timestamp: { type: Date, default: Date.now }
 });
 
-module.exports = mongoose.model('ChatLog', chatLogSchema);
+module.exports = mongoose.model('ChatLog', ChatLogSchema);

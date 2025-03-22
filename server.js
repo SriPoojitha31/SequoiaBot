@@ -14,7 +14,7 @@ const { getDiscussionPrompt } = require("./prompts.js");
 const { UserStats } = require("./models/UserStats.js");
 const { getMotivationalQuote } = require("./motivation.js");
 const SentimentModel = require("./models/Sentiment.js");
-const User = require('./models/userModel');
+const User = require('./models/User.js');
 
 // Environment Variables
 const TOKEN = process.env.BOT_TOKEN;

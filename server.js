@@ -12,11 +12,12 @@ const { UserStats } = require("./models/UserStats.js");
 
 const TOKEN = process.env.BOT_TOKEN;
 const BOT_URL = process.env.BOT_URL;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const MONGODB_URI = process.env.MONGODB_URI;
 const PORT = process.env.PORT || 10000;
 const API_ENDPOINT = process.env.API_ENDPOINT || "https://api.example.com/ask";
 const API_KEY = process.env.API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
 
 // Rate limiting configuration
 const MAX_REQUESTS_PER_MINUTE = 5;
@@ -31,10 +32,7 @@ const bot = new TelegramBot(process.env.BOT_TOKEN,{polling: false}); // ✅ keep
 const requestQueue = [];
 let isProcessingRequests = false;
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-    apiKey: OPENAI_API_KEY
-});
+
 
 // Initialize Express app
 const app = express();
@@ -63,13 +61,13 @@ const userSchema = new mongoose.Schema({
         unique: true
     },
     username: {
-        type: String
+        type: String,
     },
     name: {
-        type: String
+        type: String,
     },
     email: {
-        type: String
+        type: String,
     },
     role: {
         type: String,
@@ -84,97 +82,54 @@ const User = mongoose.model("User", userSchema);
 
 const userStates = {};
 
+// AI API Function with OpenRouter + HuggingFace fallback
 async function callAiApi(userMessage) {
     try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-3.5-turbo",
-            messages: [
-                { role: "system", content: "You are a helpful assistant." },
-                { role: "user", content: userMessage }
-            ],
-            max_tokens: 500
-        });
-
-        return response.choices[0].message.content;
-    } catch (error) {
-        console.error('❌ Error calling AI API:', error);
-        throw error;
-    }
-}
-
-async function callExternalAiApi(userMessage) {
-    try {
-        const response = await axios.post(API_ENDPOINT, {
-            prompt: userMessage,
-        }, {
-            headers: {
-                'Authorization': `Bearer ${API_KEY}`,
-                'Content-Type': 'application/json',
-            },
-        });
-
-        return response.data.answer;
-    } catch (error) {
-        console.error('❌ Error calling external AI API:', error);
-        throw error;
-    }
-}
-
-async function callAiApi(userMessage) {
-    try {
-        // Try OpenAI first
-        const response = await openai.chat.completions.create({
-            model: "gpt-3.5-turbo",
-            messages: [
-                { role: "system", content: "You are a helpful assistant." },
-                { role: "user", content: userMessage }
-            ],
-            max_tokens: 500
-        });
-
-        return response.choices[0].message.content;
-    } catch (openaiError) {
-        console.error('OpenAI API error:', openaiError);
-        
-        // If OpenAI fails, try OpenRouter as a fallback
-        try {
-            console.log('Falling back to OpenRouter API');
-            const openRouterResponse = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-                model: "openai/gpt-3.5-turbo",
-                messages: [
-                    { role: "system", content: "You are a helpful assistant." },
-                    { role: "user", content: userMessage }
-                ]
-            }, {
-                headers: {
-                    'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-                    'Content-Type': 'application/json',
-                    'HTTP-Referer': 'https://your-site-url.com', // Replace with your actual site URL
-                    'X-Title': 'Telegram Bot'
-                }
-            });
-            
-            return openRouterResponse.data.choices[0].message.content;
-        } catch (openRouterError) {
-            console.error('OpenRouter API error:', openRouterError);
-            throw new Error('Both AI services failed to provide a response');
+      console.log("Calling OpenRouter...");
+      const response = await axios.post(
+        'https://openrouter.ai/api/v1/chat/completions',
+        {
+          model: "openai/gpt-3.5-turbo",
+          messages: [
+            { role: "system", content: "You are a helpful assistant." },
+            { role: "user", content: userMessage }
+          ]
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://your-site-url.com',
+            'X-Title': 'Telegram Bot'
+          }
         }
-    }
-}
-
-async function callHuggingFaceApi(userMessage) {
-    try {
-        const response = await axios.post(
-            "https://api-inference.huggingface.co/models/google/flan-t5-xxl",
-            { inputs: userMessage },
-            { headers: { Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}` } }
+      );
+  
+      return response.data.choices[0].message.content;
+    } catch (err) {
+      console.error("OpenRouter failed:", err.message);
+  
+      // Fallback to HuggingFace
+      try {
+        console.log("Fallback: Hugging Face API");
+        const fallback = await axios.post(
+          "https://api-inference.huggingface.co/models/google/flan-t5-xxl",
+          { inputs: userMessage },
+          {
+            headers: {
+              Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
+              "Content-Type": "application/json"
+            }
+          }
         );
-        return response.data[0].generated_text;
-    } catch (error) {
-        console.error("Error calling Hugging Face API:", error);
-        throw error;
+  
+        return fallback.data[0]?.generated_text || "⚠️ No response from Hugging Face.";
+      } catch (hfError) {
+        console.error("Hugging Face failed too:", hfError.message);
+        return "❌ Both AI services failed. Please try again later.";
+      }
     }
-}
+  }
 
 // ✅ Trending Prompt Every Evening at 6 PM
 cron.schedule('0 18 * * *', async () => {
@@ -256,31 +211,22 @@ bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     const telegramId = msg.from.id;
     const username = msg.from.username || "Unknown";
-    const firstName = msg.from.first_name || "User";
-    const lastName = msg.from.last_name || "";
+    const name = msg.from.first_name || "User";
 
     try {
         let user = await User.findOne({ telegramId });
 
         if (!user) {
-            user = new User({
-                telegramId,
-                username,
-                firstName,
-                lastName
-            });
+            user = new User({ telegramId, username, name });
             await user.save();
             console.log("✅ New user registered:", username);
-
-            const welcomeMessage = `👋 Welcome, ${firstName}! You are now registered to use the bot.`;
-            await bot.sendMessage(chatId, welcomeMessage);
-        } else {
-            const alreadyRegisteredMessage = `👋 Hey ${firstName}, you're already registered!`;
-            await bot.sendMessage(chatId, alreadyRegisteredMessage);
         }
+
+        const welcomeMessage = `👋 Welcome, ${name}! You are now registered to use the bot.`;
+        bot.sendMessage(chatId, welcomeMessage);
     } catch (error) {
         console.error("❌ Error during registration:", error.message);
-        await bot.sendMessage(chatId, "⚠️ Error registering user. Please try again later.");
+        bot.sendMessage(chatId, "⚠️ Error registering user. Please try again later.");
     }
 });
 

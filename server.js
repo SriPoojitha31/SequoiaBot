@@ -130,6 +130,16 @@ const trendingPrompts = [
   "What’s one thing you learned this week?"
 ];
 
+cron.schedule('0 9 * * *', async () => {
+  const users = await User.find({}, 'telegramId');
+  const quote = await getMotivationalQuote();
+  users.forEach(user => {
+    if (user.telegramId) {
+      bot.sendMessage(user.telegramId, `🌟 *Daily Motivation:*\n${quote}`, { parse_mode: "Markdown" });
+    }
+  });
+});
+
 cron.schedule('0 10 * * *', async () => {
   try {
     const users = await User.find({}, 'telegramId');
@@ -217,9 +227,9 @@ bot.onText(/\/announce (.+)/, async (msg, match) => {
   const announcement = match[1];
 
   // Optional: restrict to admins
-  if (msg.from.id !== ADMIN_ID) {
+  if (!adminIds.includes(msg.from.id)) {
     return bot.sendMessage(msg.chat.id, "❌ You are not authorized to use this command.");
-  }
+  }  
 
   try {
     const users = await User.find({});

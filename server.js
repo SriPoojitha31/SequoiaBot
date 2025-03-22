@@ -256,24 +256,34 @@ bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     const telegramId = msg.from.id;
     const username = msg.from.username || "Unknown";
-    const name=msg.from.first_name||"User";
+    const firstName = msg.from.first_name || "User";
+    const lastName = msg.from.last_name || "";
 
     try {
         let user = await User.findOne({ telegramId });
 
         if (!user) {
-            user = new User({ telegramId, username, name });
+            user = new User({
+                telegramId,
+                username,
+                firstName,
+                lastName
+            });
             await user.save();
             console.log("✅ New user registered:", username);
-        }
 
-        const welcomeMessage='👋 Welcome, ${name} ! You are now registered to use the bot.'
-        bot.sendMessage(chatId, welcomeMessage);
+            const welcomeMessage = `👋 Welcome, ${firstName}! You are now registered to use the bot.`;
+            await bot.sendMessage(chatId, welcomeMessage);
+        } else {
+            const alreadyRegisteredMessage = `👋 Hey ${firstName}, you're already registered!`;
+            await bot.sendMessage(chatId, alreadyRegisteredMessage);
+        }
     } catch (error) {
         console.error("❌ Error during registration:", error.message);
-        bot.sendMessage(chatId, "⚠️ Error registering user.Please try again later.");
+        await bot.sendMessage(chatId, "⚠️ Error registering user. Please try again later.");
     }
 });
+
 
 //Help command
 bot.onText(/\/help/, (msg) => {

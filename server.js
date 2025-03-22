@@ -82,6 +82,12 @@ const User = mongoose.model("User", userSchema);
 
 const userStates = {};
 
+const ChatLog = mongoose.model('ChatLog', new mongoose.Schema({
+    telegramId: Number,
+    message: String,
+    timestamp: Date
+  }));
+  
 // AI API Function with OpenRouter + HuggingFace fallback
 async function callAiApi(userMessage) {
     try {
@@ -271,6 +277,7 @@ bot.onText(/\/help/, (msg) => {
 /faq - View frequently asked questions
 /id - Get your Telegram ID
 /profile - View your profile information
+/leaderboard- view top 5 active users
 
 🧠 *AI Assistant:*
 /ask <question> - Ask a question to the AI assistant
@@ -288,110 +295,117 @@ Note: You can ask up to ${MAX_REQUESTS_PER_MINUTE} questions per minute.
 //FAQ command
 bot.onText(/\/faq/, (msg) => {
     const chatId = msg.chat.id;
-    const faqMessage = `
-🤖 *Frequently Asked Questions:*
+    const faqText = `
+*Frequently Asked Questions:*
+1. _How do I register?_ – Just say "hi" to the bot!
+2. _How can I get updates?_ – You’ll receive them automatically once registered.
+3. _Who can post announcements?_ – Only admins.
 
-🔹 *What can this bot do?*
-   - This bot provides AI-powered responses to your questions and helps manage the community.
-
-🔹 *How do I ask the AI a question?*
-   - Use the /ask command followed by your question:
-   - Example: /ask What's the weather like today?
-
-🔹 *Are there any usage limits?*
-   - Yes, you can ask up to ${MAX_REQUESTS_PER_MINUTE} questions per minute.
-
-🔹 *How do I report an issue?*
-   - Contact the admin or use /help for more details.
-
-🔹 *Can I contribute to this bot?*
-   - Yes! Contact the admin for collaboration opportunities.
-    `;
-    bot.sendMessage(chatId, faqMessage, { parse_mode: "Markdown" });
+Use /help to see all commands.
+`;
+  bot.sendMessage(msg.chat.id, faqText, { parse_mode: "Markdown" });
 });
 
-// Handle onboarding messages
+// Handle onboarding, sentiment tracking, and engagement
 bot.on("message", async (msg) => {
-    console.log("🔍 DEBUG - Received Message:", JSON.stringify(msg, null, 2));
-
-    const userId = msg?.from?.id; 
+    const telegramId = msg?.from?.id;
     const chatId = msg?.chat?.id;
+    const username = msg.from.username || "N/A";
+    const firstName = msg.from.first_name || "";
 
-    if (!chatId) {
-        console.error("❌ Error: chatId is undefined or empty. Message:", JSON.stringify(msg, null, 2));
-        bot.sendMessage(userId, "⚠️ Error: Unable to process your message.");
+    if (!chatId || !telegramId) {
+        console.error("❌ Missing chatId or userId. Message:", JSON.stringify(msg, null, 2));
         return;
     }
 
-    if (!userStates[userId]) return; // Ignore if not in onboarding
+    // -----------------------------------------
+    // ✅ 1. Handle Onboarding Flow
+    // -----------------------------------------
+    if (userStates[telegramId]) {
+        let userData = userStates[telegramId];
 
-    let userData = userStates[userId];
+        if (userData.step === "name") {
+            userData.name = msg.text;
+            userData.step = "email";
+            return bot.sendMessage(chatId, "📧 Great! Now enter your **Email**:");
+        } 
+        else if (userData.step === "email") {
+            userData.email = msg.text;
+            userData.step = "role";
+            return bot.sendMessage(chatId, "🛠 Awesome! What is your **Role** (e.g., Admin, Member)?");
+        } 
+        else if (userData.step === "role") {
+            userData.role = msg.text;
 
-    if (userData.step === "name") {
-        userData.name = msg.text;
-        userData.step = "email";
-        bot.sendMessage(chatId, "📧 Great! Now enter your **Email**:");
-    } else if (userData.step === "email") {
-        userData.email = msg.text;
-        userData.step = "role";
-        bot.sendMessage(chatId, "🛠 Awesome! What is your **Role** (e.g., Admin, Member)?");
-    } else if (userData.step === "role") {
-        userData.role = msg.text;
+            try {
+                const newUser = new User({
+                    telegramId,
+                    name: userData.name,
+                    email: userData.email,
+                    role: userData.role,
+                    username
+                });
 
-        try {
-            const newUser = new User({
-                userId: userId,
-                name: userData.name,
-                email: userData.email,
-                role: userData.role,
-                username: msg.from.username || "N/A" 
-            });
+                await newUser.save();
+                delete userStates[telegramId];
 
-            await newUser.save();
-            delete userStates[userId]; 
-
-            bot.sendMessage(
-                chatId,
-                `✅ Onboarding complete! 🎉\n\nYour details:\n👤 Name: ${newUser.name}\n📧 Email: ${newUser.email}\n🛠 Role: ${newUser.role}\n📛 Username: @${newUser.username}`
-            );
-        } catch (error) {
-            console.error("❌ Error saving user:", error);
-            bot.sendMessage(chatId, "⚠️ Error saving your details. Please try again.");
+                return bot.sendMessage(
+                    chatId,
+                    `✅ *Onboarding complete!* 🎉\n\n*Your details:*\n👤 Name: ${newUser.name}\n📧 Email: ${newUser.email}\n🛠 Role: ${newUser.role}\n📛 Username: @${newUser.username}`,
+                    { parse_mode: "Markdown" }
+                );
+            } catch (error) {
+                console.error("❌ Error saving user:", error);
+                return bot.sendMessage(chatId, "⚠️ Error saving your details. Please try again.");
+            }
         }
     }
-    if (msg.text && !msg.text.startsWith('/')) {
-        const result = sentiment.analyze(msg.text);
-        const sentimentLabel =
-          result.score > 0 ? 'positive' : result.score < 0 ? 'negative' : 'neutral';
-        const sentimentData = new SentimentModel({
-          userId: msg.from.id,
-          username: msg.from.username || '',
-          text: msg.text,
-          score: result.score,
-          sentiment: sentimentLabel,
-          timestamp: new Date()
-        });
 
-        await sentimentData.save();
-        if (result.score <= -3) {
-            bot.sendMessage(chatId, "Hey, everything okay? Let us know if we can help. ❤️");
+    // -----------------------------------------
+    // ✅ 2. Sentiment Analysis (ignore commands)
+    // -----------------------------------------
+    if (msg.text && !msg.text.startsWith('/')) {
+        try {
+            const result = sentiment.analyze(msg.text);
+            const sentimentLabel = result.score > 0 ? "positive" : result.score < 0 ? "negative" : "neutral";
+
+            const sentimentData = new SentimentModel({
+                userId: telegramId,
+                username,
+                text: msg.text,
+                score: result.score,
+                sentiment: sentimentLabel,
+                timestamp: new Date()
+            });
+
+            await sentimentData.save();
+
+            if (result.score <= -3) {
+                bot.sendMessage(chatId, "😟 Hey, everything okay? Let us know if we can help. ❤️");
+            }
+        } catch (err) {
+            console.error("❌ Sentiment logging failed:", err);
         }
-        
-        const userId = msg.from.id;
-        const username = msg.from.username || '';
-        const firstName = msg.from.first_name || '';
+    }
+
+    // -----------------------------------------
+    // ✅ 3. Engagement Points & Stats
+    // -----------------------------------------
+    try {
         await UserStats.findOneAndUpdate(
-            { userId },
+            { userId: telegramId },
             {
-                $inc: { messageCount: 1 },
+                $inc: { messageCount: 1, points: 1 },
                 $set: { username, firstName }
             },
             { upsert: true, new: true }
         );
-
-        console.log(`👤 Tracked message from ${username} (ID: ${userId})`);
+        console.log(`📊 Tracked message from @${username} (ID: ${telegramId})`);
+    } catch (err) {
+        console.error("❌ Failed to update engagement stats:", err);
     }
 });
+
 
 
 //Admin Announcements
@@ -659,6 +673,30 @@ bot.on("new_chat_members", async (msg) => {
             console.error(`❌ Error registering new member (${telegramId}):`, error.message);
             await bot.sendMessage(chatId, "⚠️ An error occurred during registration. Please try again later.");
         }
+    }
+});
+
+bot.onText(/\/leaderboard/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    try {
+        const topUsers = await UserStats.find({})
+            .sort({ messageCount: -1 })
+            .limit(5);
+
+        if (topUsers.length === 0) {
+            return bot.sendMessage(chatId, "📉 No user activity yet to show on the leaderboard.");
+        }
+
+        let leaderboard = "🏆 *Top 5 Engaged Users:*\n\n";
+        topUsers.forEach((user, index) => {
+            leaderboard += `#${index + 1} — ${user.username || user.firstName || "Anonymous"}: ${user.messageCount} pts\n`;
+        });
+
+        bot.sendMessage(chatId, leaderboard, { parse_mode: "Markdown" });
+    } catch (err) {
+        console.error("❌ Error fetching leaderboard:", err);
+        bot.sendMessage(chatId, "⚠️ Couldn't fetch leaderboard. Try again later.");
     }
 });
 

@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 const UserStatsSchema = new mongoose.Schema({
-    userId: { type: Number, required: true, unique: true },
+    telegramId: { type: Number, required: true, unique: true },
     username: String,
     firstName: String,
     messageCount: { type: Number, default: 0 },

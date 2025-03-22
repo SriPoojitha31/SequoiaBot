@@ -1,6 +1,7 @@
 // models/User.js
 const mongoose = require('mongoose');
 const ChatLog=require('./ChatLog.js');
+const Engagement = require('./Engagement.js');
 const userSchema = new mongoose.Schema({
   telegramId: String,
   name: String,

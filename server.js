@@ -15,6 +15,7 @@ const { getMotivationalQuote } = require("./motivation.js");
 const SentimentModel = require("./models/Sentiment.js");
 const User = require("./models/User.js");
 const ChatLog = require("./models/ChatLog.js");
+const Engagement = require('./models/Engagement.js');
 
 // Env Variables
 const {
@@ -113,6 +114,13 @@ async function sendAnnouncement(announcementText) {
   return { successCount, failCount };
 }
 
+async function processPendingRequests(bot, chatId, telegramId, userMessage) {
+  // Placeholder logic – customize as needed!
+  console.log(`Processing pending request from ${telegramId}: ${userMessage}`);
+
+  // Optionally, respond to the user
+  await bot.sendMessage(chatId, "Thanks! We'll process this soon.");
+}
 // ===== Cron Job: Trending Prompt =====
 const trendingPrompts = [
   "What's your favorite productivity hack?",
@@ -316,11 +324,19 @@ bot.on("message", async (msg) => {
   // -----------------------------------------
   // ✅ 4. Chat Logging
   // -----------------------------------------
-  if (msg.text && msg.chat && msg.from) {
-      const { id: userId, username } = msg.from;
-      await ChatLog.create({ userId, username, message: msg.text });
+  try {
+    await ChatLog.create({
+      telegramId,
+      username,
+      message: msg.text,
+      timestamp: new Date()
+    });
+  } catch (err) {
+    console.error("❌ Chat logging failed:", err);
   }
+  
 });
+
 //------------------
 //Users List Command
 //------------------
@@ -419,64 +435,29 @@ bot.on('error', (error) => {
 // ------------------------------------------------------
 // ✅ Updated /ask command with reward with AI responses
 // ------------------------------------------------------
-bot.onText(/\/ask(.*)/, async (msg, match) => {
+bot.onText(/\/ask (.+)/, async (msg, match) => {
   const chatId = msg.chat.id;
   const telegramId = msg.from.id;
+  const userMessage = match[1].trim();
 
-  let userMessage = match[1].trim();
+  // Rate Limiting
+  const currentTime = Date.now();
+  const userTimestamps = rateLimitMap.get(telegramId) || [];
 
-  if (!userMessage) {
-      return bot.sendMessage(chatId, `
-⚠️ Please provide a question after the /ask command.
-
-*Correct format:*
-/ask What is the capital of France?
-      `, { parse_mode: "Markdown" });
+  // Remove old timestamps (older than 1 minute)
+  const recentTimestamps = userTimestamps.filter(ts => currentTime - ts < 60000);
+  if (recentTimestamps.length >= MAX_REQUESTS_PER_MINUTE) {
+    return bot.sendMessage(chatId, "⚠️ You've reached the limit of 5 requests per minute. Please wait a bit.");
   }
 
-  try {
-      const user = await User.findOne({ telegramId });
-      if (!user) {
-          return bot.sendMessage(chatId, "⚠️ Please register using /start before using this command.");
-      }
+  // Update rateLimitMap
+  recentTimestamps.push(currentTime);
+  rateLimitMap.set(telegramId, recentTimestamps);
 
-      const now = Date.now();
-      const lastRequests = rateLimitMap.get(telegramId) || [];
-      const updatedRequests = lastRequests.filter((time) => now - time < REQUEST_TIME_WINDOW);
-
-      if (updatedRequests.length >= MAX_REQUESTS_PER_MINUTE) {
-          return bot.sendMessage(chatId, `
-⏳ *Rate Limit Reached*
-You've reached the limit of ${MAX_REQUESTS_PER_MINUTE} questions per minute.
-Please wait before asking another question.
-          `, { parse_mode: "Markdown" });
-      }
-
-      updatedRequests.push(now);
-      rateLimitMap.set(telegramId, updatedRequests);
-
-      requestQueue.push({ userMessage, chatId });
-      bot.sendMessage(chatId, "🤖 Your question has been received. Processing...");
-      processPendingRequests();
-
-      // ✅ Add engagement points for asking
-      await UserStats.findOneAndUpdate(
-          { userId: telegramId },
-          { $inc: { points: 5 } },
-          { upsert: true }
-      );
-
-      // ✅ Log question
-      await ChatLog.create({
-          userId: telegramId,
-          message: userMessage
-      });
-
-      console.log(`📝 User ${telegramId} (${user.username}) asked: ${userMessage}`);
-  } catch (error) {
-      console.error("❌ Error processing /ask command:", error);
-      bot.sendMessage(chatId, "⚠️ An error occurred. Please try again later.");
-  }
+  // Process request
+  bot.sendMessage(chatId, "💭 Thinking...");
+  const reply = await callAiApi(userMessage);
+  bot.sendMessage(chatId, `🤖 ${reply}`);
 });
 
 // -----------------------------------------
@@ -513,25 +494,22 @@ bot.onText(/\/leaderboard/, async (msg) => {
   const chatId = msg.chat.id;
 
   try {
-      const topUsers = await User.find({})
-          .sort({ points: -1 })
-          .limit(10);
+    const topUsers = await UserStats.find({})
+      .sort({ points: -1 })
+      .limit(10);
 
-      if (topUsers.length === 0) {
-          return bot.sendMessage(chatId, "⚠️ No users with points yet.");
-      }
+    let leaderboardText = "🏆 *Leaderboard: Top Users by Points*\n\n";
+    topUsers.forEach((user, index) => {
+      leaderboardText += `${index + 1}. ${user.firstName || 'User'} (@${user.username || 'N/A'}) – ${user.points} pts\n`;
+    });
 
-      let leaderboardText = "🏆 *Leaderboard - Top 10 Users:*\n\n";
-      topUsers.forEach((user, index) => {
-          leaderboardText += `🔹 ${index + 1}. ${user.name || user.username || "Unknown"} - ${user.points || 0} points\n`;
-      });
-
-      bot.sendMessage(chatId, leaderboardText, { parse_mode: "Markdown" });
-  } catch (error) {
-      console.error("❌ Error fetching leaderboard:", error);
-      bot.sendMessage(chatId, "⚠️ Failed to load leaderboard.");
+    bot.sendMessage(chatId, leaderboardText, { parse_mode: "Markdown" });
+  } catch (err) {
+    console.error("❌ Leaderboard error:", err);
+    bot.sendMessage(chatId, "⚠️ Couldn't fetch leaderboard. Try again later.");
   }
 });
+
 
 console.log("Bot object:", bot);
 

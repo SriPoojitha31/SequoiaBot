@@ -48,23 +48,6 @@ mongoose.connect(MONGODB_URI)
   .then(() => console.log("✅ MongoDB connected"))
   .catch((err) => console.error("❌ MongoDB connection error:", err));
 
-// User Schema
-const userSchema = new mongoose.Schema({
-  telegramId: { type: Number, required: true, unique: true },
-  username: String,
-  name: String,
-  email: String,
-  role: { type: String, default: "Member" },
-  joinedAt: { type: Date, default: Date.now },
-});
-const User = mongoose.model("User", userSchema);
-
-// Chat Log Schema
-const ChatLog = mongoose.model("ChatLog", new mongoose.Schema({
-  telegramId: Number,
-  message: String,
-  timestamp: Date
-}));
 
 // AI API Handler
 async function callAiApi(userMessage) {

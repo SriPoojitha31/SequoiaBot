@@ -96,4 +96,11 @@ userSchema.methods.useCredit = function () {
     return this.save();
 };
 
+// Chat Log Schema
+const ChatLog = mongoose.model("ChatLog", new mongoose.Schema({
+    telegramId: Number,
+    message: String,
+    timestamp: Date
+  }));
+
 module.exports = mongoose.model("User", userSchema);

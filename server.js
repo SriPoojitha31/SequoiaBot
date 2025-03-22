@@ -15,7 +15,6 @@ const { UserStats } = require("./models/UserStats.js");
 const { getMotivationalQuote } = require("./motivation.js");
 const SentimentModel = require("./models/Sentiment.js");
 const User = require('./models/User.js');
-const Engagement = require('./models/Engagement');
 
 // Environment Variables
 const TOKEN = process.env.BOT_TOKEN;
@@ -203,7 +202,6 @@ bot.onText(/\/help/, (msg) => {
 /faq - View frequently asked questions
 /id - Get your Telegram ID
 /profile - View your profile information
-/leaderboard- view top 5 active users
 
 🧠 *AI Assistant:*
 /ask <question> - Ask a question to the AI assistant
@@ -602,30 +600,6 @@ bot.on("new_chat_members", async (msg) => {
             console.error(`❌ Error registering new member (${telegramId}):`, error.message);
             await bot.sendMessage(chatId, "⚠️ An error occurred during registration. Please try again later.");
         }
-    }
-});
-
-bot.onText(/\/leaderboard/, async (msg) => {
-    const chatId = msg.chat.id;
-
-    try {
-        const topUsers = await UserStats.find({})
-            .sort({ messageCount: -1 })
-            .limit(5);
-
-        if (topUsers.length === 0) {
-            return bot.sendMessage(chatId, "📉 No user activity yet to show on the leaderboard.");
-        }
-
-        let leaderboard = "🏆 *Top 5 Engaged Users:*\n\n";
-        topUsers.forEach((user, index) => {
-            leaderboard += `#${index + 1} — ${user.username || user.firstName || "Anonymous"}: ${user.messageCount} pts\n`;
-        });
-
-        bot.sendMessage(chatId, leaderboard, { parse_mode: "Markdown" });
-    } catch (err) {
-        console.error("❌ Error fetching leaderboard:", err);
-        bot.sendMessage(chatId, "⚠️ Couldn't fetch leaderboard. Try again later.");
     }
 });
 

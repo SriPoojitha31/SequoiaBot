@@ -323,8 +323,6 @@ bot.on("message", async (msg) => {
         return;
     }
 
-    bot.sendMessage(chatId, "✅ This is a test message to check chat ID.");
-
     if (!userStates[userId]) return; // Ignore if not in onboarding
 
     let userData = userStates[userId];

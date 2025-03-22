@@ -33,7 +33,7 @@ const adminIds = [5559338907];
 const MAX_REQUESTS_PER_MINUTE = 5;
 const groupId = "-1002570334546";
 const rateLimitMap = new Map();
-global.userStates = {};
+const UserStats = require('./models/UserStats.js');
 const requestQueue = [];
 let isProcessingRequests = false;
 

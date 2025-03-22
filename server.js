@@ -386,32 +386,39 @@ bot.onText(/\/users/, async (msg) => {
 //User Profile Command
 //--------------------
 bot.onText(/\/profile/, async (msg) => {
-    const chatId = msg.chat.id;
-    const telegramId = msg.from.id;
+  const chatId = msg.chat.id;
+  const telegramId = msg.from.id;
 
-    try {
-        const user = await User.findOne({ telegramId });
+  try {
+      const user = await User.findOne({ telegramId });
 
-        if (!user) {
-            return bot.sendMessage(chatId, "⚠️ You are not registered. Use /start to register.");
-        }
+      if (!user) {
+          return bot.sendMessage(chatId, "⚠️ You are not registered. Use /start to register.");
+      }
 
-        bot.sendMessage(chatId, `
+      const displayName = user.name || `${msg.from.first_name || "N/A"} ${msg.from.last_name || ""}`.trim();
+      const username = user.username ? `@${user.username}` : "N/A";
+      const joinedDate = user.joinedAt ? user.joinedAt.toDateString() : "N/A";
+
+      const profileText = `
 👤 *Your Profile:*
 
-🔹 *ID:* ${user.telegramId}
-🔹 *Username:* @${user.username || "N/A"}
-🔹 *Name:* ${user.name || "Not set"}
+🔹 *ID:* \`${user.telegramId}\`
+🔹 *Username:* ${username}
+🔹 *Name:* ${displayName}
 📧 *Email:* ${user.email || "Not set"}
 🛠 *Role:* ${user.role || "Member"}
-📅 *Joined:* ${user.joinedAt.toDateString()}
-        `, { parse_mode: "Markdown" });
+📅 *Joined:* ${joinedDate}
+      `;
 
-    } catch (error) {
-        console.error("❌ Error fetching profile:", error);
-        bot.sendMessage(chatId, "⚠️ Failed to retrieve profile.");
-    }
+      bot.sendMessage(chatId, profileText, { parse_mode: "Markdown", disable_web_page_preview: true });
+
+  } catch (error) {
+      console.error("❌ Error fetching profile:", error);
+      bot.sendMessage(chatId, "⚠️ Failed to retrieve profile.");
+  }
 });
+
 //----------------
 // Get Telegram ID
 //----------------

@@ -214,23 +214,25 @@ bot.onText(/\/faq/, (msg) => {
 // ===== Admin Announcements =====
 //--------------------------------
 bot.onText(/\/announce (.+)/, async (msg, match) => {
-  const chatId = msg.chat.id;
-  const senderId = msg.from.id;
+  const announcement = match[1];
 
-  if (!adminIds.includes(senderId)) {
-    return bot.sendMessage(chatId, "🚫 You are not authorized to send announcements.");
+  // Optional: restrict to admins
+  if (msg.from.id !== ADMIN_ID) {
+    return bot.sendMessage(msg.chat.id, "❌ You are not authorized to use this command.");
   }
 
-  const announcementText = (match[1] || "").trim();
-
-  // 🔽 Fix: Validate announcement text
-  if (!announcementText) {
-    return bot.sendMessage(chatId, "⚠️ Please provide a valid announcement message.");
+  try {
+    const users = await User.find({});
+    for (const user of users) {
+      await bot.sendMessage(user.telegramId, `📢 Announcement:\n\n${announcement}`);
+    }
+    console.log("✅ Announcement sent to all users.");
+  } catch (err) {
+    console.error("❌ Failed to send announcement:", err.message);
   }
-
-  const { successCount, failCount } = await sendAnnouncement(announcementText);
-  bot.sendMessage(chatId, `✅ Announcement sent!\n📬 Success: ${successCount}, ❌ Failed: ${failCount}`);
 });
+
+
 
 //------------------------------------------------------
 // Handle onboarding, sentiment tracking, and engagement
@@ -239,114 +241,120 @@ bot.on("message", async (msg) => {
   const telegramId = msg?.from?.id;
   const chatId = msg?.chat?.id;
   const username = msg.from.username || "N/A";
-  const firstName = msg.from.first_name || "";
+  const firstName = msg.from.first_name || "User";
 
   if (!chatId || !telegramId) {
-      console.error("❌ Missing chatId or userId. Message:", JSON.stringify(msg, null, 2));
-      return;
+    console.error("❌ Missing chatId or userId. Message:", JSON.stringify(msg, null, 2));
+    return;
   }
 
   // -----------------------------------------
-  // ✅ 1. Handle Onboarding Flow
+  // ✅ 0. Register or Fetch User
+  // -----------------------------------------
+  let user;
+  try {
+    user = await User.findOne({ telegramId });
+
+    if (!user) {
+      user = new User({
+        telegramId,
+        name: firstName,
+        username,
+        points: 0
+      });
+      await user.save();
+      console.log("✅ Registered user:", firstName);
+    } else {
+      // Only add points if it's not a command
+      if (msg.text && !msg.text.startsWith('/')) {
+        user.points += 1;
+        await user.save();
+        console.log(`✨ ${user.name} gained a point! (${user.points})`);
+      }
+    }
+  } catch (error) {
+    console.error("❌ User registration or points error:", error);
+    return;
+  }
+
+  // -----------------------------------------
+  // ✅ 1. Onboarding Flow
   // -----------------------------------------
   if (userStates[telegramId]) {
     let userData = userStates[telegramId];
 
     if (userData.step === "name") {
-        userData.name = msg.text;
-        userData.step = "email";
-        return bot.sendMessage(chatId, "📧 Great! Now enter your **Email**:");
-    } 
-    else if (userData.step === "email") {
-        userData.email = msg.text;
-        userData.step = "role";
-        return bot.sendMessage(chatId, "🛠 Awesome! What is your **Role** (e.g., Admin, Member)?");
-    } 
-    else if (userData.step === "role") {
-        userData.role = msg.text;
+      userData.name = msg.text;
+      userData.step = "email";
+      return bot.sendMessage(chatId, "📧 Great! Now enter your **Email**:");
+    } else if (userData.step === "email") {
+      userData.email = msg.text;
+      userData.step = "role";
+      return bot.sendMessage(chatId, "🛠 Awesome! What is your **Role** (e.g., Admin, Member)?");
+    } else if (userData.step === "role") {
+      userData.role = msg.text;
 
-        try {
-            const newUser = new User({
-                telegramId,
-                name: userData.name || "Anonymous",
-                email: userData.email || "unknown@example.com",
-                role: userData.role || "Member",
-                username
-            });
+      try {
+        const newUser = new User({
+          telegramId,
+          name: userData.name || "Anonymous",
+          email: userData.email || "unknown@example.com",
+          role: userData.role || "Member",
+          username
+        });
 
-            await newUser.save();
-            delete userStates[telegramId];
+        await newUser.save();
+        delete userStates[telegramId];
 
-            const confirmationMsg = `✅ *Onboarding complete!* 🎉\n\n*Your details:*\n👤 Name: ${newUser.name}\n📧 Email: ${newUser.email}\n🛠 Role: ${newUser.role}\n📛 Username: @${newUser.username}`;
-            return bot.sendMessage(chatId, confirmationMsg, { parse_mode: "Markdown" });
-        } catch (error) {
-            console.error("❌ Error saving user:", error);
-            return bot.sendMessage(chatId, "⚠️ Error saving your details. Please try again.");
-        }
+        const confirmationMsg = `✅ *Onboarding complete!* 🎉\n\n*Your details:*\n👤 Name: ${newUser.name}\n📧 Email: ${newUser.email}\n🛠 Role: ${newUser.role}\n📛 Username: @${newUser.username}`;
+        return bot.sendMessage(chatId, confirmationMsg, { parse_mode: "Markdown" });
+      } catch (error) {
+        console.error("❌ Error saving user details:", error);
+        return bot.sendMessage(chatId, "⚠️ Failed to save your details. Try again later.");
+      }
     }
-}
+  }
 
   // -----------------------------------------
-  // ✅ 2. Sentiment Analysis (ignore commands)
+  // ✅ 2. Sentiment Analysis
   // -----------------------------------------
   if (msg.text && !msg.text.startsWith('/')) {
-      try {
-          const result = sentiment.analyze(msg.text);
-          const sentimentScore = result.score;
-          const sentimentLabel = sentimentScore > 0 ? 'positive' : sentimentScore < 0 ? 'negative' : 'neutral';
+    try {
+      const result = sentiment.analyze(msg.text);
+      const score = result.score;
+      const label = score > 0 ? 'positive' : score < 0 ? 'negative' : 'neutral';
 
-          await SentimentModel.create({
-              telegramId,
-              username,
-              sentiment: sentimentLabel,
-              score: sentimentScore,
-              timestamp: new Date()
-          });
+      await SentimentModel.create({
+        telegramId,
+        username,
+        sentiment: label,
+        score: score,
+        timestamp: new Date()
+      });
 
-          if (sentimentScore <= -3) {
-              bot.sendMessage(chatId, "😟 Hey, everything okay? Let us know if we can help. ❤️");
-          }
-      } catch (err) {
-          console.error("❌ Sentiment logging failed:", err);
+      if (score <= -3) {
+        bot.sendMessage(chatId, "😟 Hey, everything okay? Let us know if we can help. ❤️");
       }
+    } catch (err) {
+      console.error("❌ Sentiment logging error:", err);
+    }
   }
 
   // -----------------------------------------
-  // ✅ 3. Engagement Points & Stats
+  // ✅ 3. Chat Logging
   // -----------------------------------------
-  try {
-      await UserStats.findOneAndUpdate(
-          { userId: telegramId },
-          {
-              $inc: { messageCount: 1, points: 1 },
-              $set: { username, firstName }
-          },
-          { upsert: true, new: true }
-      );
-      console.log(`📊 Tracked message from @${username} (ID: ${telegramId})`);
-  } catch (err) {
-      console.error("❌ Failed to update engagement stats:", err);
+  if (msg.text && msg.text.trim() !== "") {
+    try {
+      await ChatLog.create({
+        telegramId,
+        username,
+        message: msg.text,
+        timestamp: new Date()
+      });
+    } catch (err) {
+      console.error("❌ Chat logging failed:", err);
+    }
   }
-
-  // -----------------------------------------
-  // ✅ 4. Chat Logging
-  // -----------------------------------------
-  try {
-    await ChatLog.create({
-      telegramId,
-      username,
-      message: msg.text,
-      timestamp: new Date()
-    });
-  } catch (err) {
-    console.error("❌ Chat logging failed:", err);
-  }
-  const text = msg.text;
-  if (!text || typeof text !== "string" || text.trim() === "") {
-    console.warn("⚠️ Skipping empty message:", msg);
-    return;
-  }
-  
 });
 
 //------------------

@@ -49,6 +49,10 @@ const userSchema = new mongoose.Schema({
     credits: {
         type: Number,
         default: 10
+    },
+    points: {
+        type: Number,
+        default: 0
     }
 });
 
@@ -101,24 +105,6 @@ userSchema.methods.useCredit = async function () {
     return this.save(); // Save the updated credits
 };
 
-// Chat Log Schema Definition
-const chatLogSchema = new mongoose.Schema({
-    telegramId: {
-        type: Number,
-        required: true
-    },
-    message: {
-        type: String,
-        required: true
-    },
-    timestamp: {
-        type: Date,
-        default: Date.now // Defaults to the current date/time
-    },
-});
-
-// ChatLog Model
-const ChatLog = mongoose.model("ChatLog", chatLogSchema);
 
 // User Model
 const User = mongoose.model("User", userSchema);

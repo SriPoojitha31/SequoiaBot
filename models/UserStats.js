@@ -1,12 +1,11 @@
-// When creating userStates
-userStates[telegramId] = {
-  step: "name",
-  createdAt: Date.now()
-};
+const mongoose = require("mongoose");
 
-// In message handler, clean up if stale (e.g., older than 5 minutes)
-const state = userStates[telegramId];
-if (state && Date.now() - state.createdAt > 5 * 60 * 1000) {
-  delete userStates[telegramId];
-  return bot.sendMessage(chatId, "⚠️ Session timed out. Please type /start to begin onboarding again.");
-}
+const UserStatsSchema = new mongoose.Schema({
+    userId: { type: Number, required: true, unique: true },
+    username: String,
+    firstName: String,
+    messageCount: { type: Number, default: 0 },
+    points: { type: Number, default: 0 },
+});
+
+module.exports = mongoose.model("UserStats", UserStatsSchema);

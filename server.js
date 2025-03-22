@@ -522,29 +522,23 @@ bot.onText(/\/leaderboard/, async (msg) => {
   const chatId = msg.chat.id;
 
   try {
-    const topUsers = await UserStats.find({})
-      .sort({ points: -1 })
-      .limit(10)
-      .lean(); // lean() makes it faster and cleaner
-
-    if (!topUsers || topUsers.length === 0) {
-      return bot.sendMessage(chatId, "📉 No leaderboard data found yet.");
+    const users = await User.find().sort({ points: -1 }).limit(10);
+    if (!users || users.length === 0) {
+      return bot.sendMessage(chatId, "No leaderboard data available.");
     }
 
-    let leaderboardText = "🏆 *Leaderboard: Top Users by Points*\n\n";
-    topUsers.forEach((user, index) => {
-      const firstName = user.firstName || "User";
-      const username = user.username ? `@${user.username}` : "N/A";
-      const points = user.points || 0;
-      leaderboardText += `${index + 1}. *${firstName}* (${username}) – ${points} pts\n`;
+    let leaderboardMsg = "🏆 *Top Users Leaderboard:*\n\n";
+    users.forEach((user, index) => {
+      leaderboardMsg += `${index + 1}. ${user.name || "Anonymous"} - ${user.points || 0} points\n`;
     });
 
-    bot.sendMessage(chatId, leaderboardText, { parse_mode: "Markdown" });
-  } catch (err) {
-    console.error("❌ Leaderboard error:", err);
-    bot.sendMessage(chatId, "⚠️ Couldn't fetch leaderboard. Try again later.");
+    bot.sendMessage(chatId, leaderboardMsg, { parse_mode: "Markdown" });
+  } catch (error) {
+    console.error("❌ Error fetching leaderboard:", error);
+    bot.sendMessage(chatId, "⚠️ Error retrieving leaderboard. Try again later.");
   }
 });
+
 
 console.log("Bot object:", bot);
 

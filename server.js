@@ -25,7 +25,7 @@ const REQUEST_TIME_WINDOW = 60 * 1000; // 1 minute in milliseconds
 const adminIds = [5559338907];
 const groupId = '-1002570334546';
 
-const bot = new TelegramBot(process.env.BOT_TOKEN,{polling: true}); // ✅ keep this one (for webhook)
+const bot = new TelegramBot(process.env.BOT_TOKEN,{polling: false}); // ✅ keep this one (for webhook)
 
 // Queue to manage requests
 const requestQueue = [];

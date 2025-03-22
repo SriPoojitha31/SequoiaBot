@@ -48,6 +48,8 @@ const { getMotivationalQuote } = require('./motivation.js');
 const cron = require('node-cron');
 const SentimentModel = require('./models/Sentiment.js');
 
+const URL = 'https://sequoia-bot.onrender.com';
+bot.setWebHook(`${URL}/bot${TOKEN}`);
 // Connect to MongoDB
 mongoose.connect(MONGODB_URI)
   .then(() => console.log("✅ MongoDB connected"))
@@ -695,6 +697,11 @@ bot.on('new_chat_members', async (msg) => {
 
 console.log("Bot object:", bot);
 
+app.post(`/bot${TOKEN}`, (req, res) => {
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
+  });
+  
 // Simple endpoint for checking server status
 app.get('/', (req, res) => {
     res.json({ status: 'OK', message: 'Bot server is running' });

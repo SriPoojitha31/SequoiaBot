@@ -242,8 +242,6 @@ bot.onText(/\/announce (.+)/, async (msg, match) => {
   }
 });
 
-
-
 //------------------------------------------------------
 // Handle onboarding, sentiment tracking, and engagement
 //-------------------------------------------------------

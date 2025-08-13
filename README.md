@@ -13,6 +13,7 @@ SequoiaBot is a smart community manager Telegram bot built using Node.js, MongoD
 - Sentiment analysis to track engagement
 - MongoDB for user profile management
 - Admin-only features for control and moderation
+- leaderboard of top 5 users
 
 ## 🛠 Tech Stack
 - Node.js
@@ -30,15 +31,12 @@ git clone https://github.com/SriPoojitha31/SequoiaBot.git
 cd SequoiaBot
 npm install
 npm start
-
+```
 ## 👾 Deployment 
 Deployed on Render
 Live: https://sequoia-bot.onrender.com
 
-## 📸 Screenshots
-Screenshots/AIresponse.png
- Screenshots/scheduledannouncementandadmin.png 
- Screenshots/Welcome.png
+``
 ## 📲 Contact
 Linkdin:www.linkedin.com/in/sri-poojitha-jorige-377270294
 
@@ -108,3 +106,6 @@ The bot is designed to be deployed on platforms like Render, Heroku, or any Node
 ## License
 
 MIT
+=======
+```
+Created with 💙 by SriPoojitha31

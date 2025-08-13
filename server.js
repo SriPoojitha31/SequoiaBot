@@ -10,6 +10,8 @@ const sentiment = new Sentiment();
 
 // Custom Modules
 const { getDiscussionPrompt } = require("./prompts.js");
+const { getSpecializedPrompt } = require("./aiPrompts.js");
+const { callAiApi } = require("./aiService.js");
 const { UserStats } = require("./models/UserStats.js");
 const { getMotivationalQuote } = require("./motivation.js");
 const SentimentModel = require("./models/Sentiment.js");
@@ -51,51 +53,6 @@ mongoose.connect(MONGODB_URI)
   .catch((err) => console.error("❌ MongoDB connection error:", err));
 
 // ===== AI API Handler =====
-async function callAiApi(userMessage) {
-  try {
-    console.log("Calling OpenRouter...");
-    const response = await axios.post(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        model: "openai/gpt-3.5-turbo",
-        messages: [
-          { role: "system", content: "You are a helpful assistant." },
-          { role: "user", content: userMessage },
-        ],
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://your-site-url.com",
-          "X-Title": "Telegram Bot",
-        },
-      }
-    );
-
-    return response.data.choices[0].message.content;
-  } catch (err) {
-    console.error("OpenRouter failed:", err.message);
-    try {
-      const fallback = await axios.post(
-        "https://api-inference.huggingface.co/models/google/flan-t5-xxl",
-        { inputs: userMessage },
-        {
-          headers: {
-            Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-      return fallback.data[0]?.generated_text || "⚠️ No response from Hugging Face.";
-    } catch (hfError) {
-      console.error("Hugging Face failed too:", hfError.message);
-      return "❌ Both AI services failed. Please try again later.";
-    }
-  }
-}
-
-// ===== Send Announcements =====
 async function sendAnnouncement(announcementText) {
   const users = await User.find({}, "telegramId");
   let successCount = 0, failCount = 0;
@@ -127,7 +84,7 @@ const trendingPrompts = [
   "Share your recent coding project!",
   "What's the best AI tool you've used recently?",
   "Any cool weekend plans?",
-  "What’s one thing you learned this week?"
+  "What's one thing you learned this week?"
 ];
 
 cron.schedule('0 9 * * *', async () => {
@@ -165,9 +122,26 @@ bot.onText(/\/start/, async (msg) => {
   try {
     let user = await User.findOne({ telegramId });
     if (!user) {
-      user = new User({ telegramId, username, name });
+      // Check if user is an admin
+      const isAdmin = adminIds.includes(telegramId);
+      
+      user = new User({
+        telegramId,
+        name: firstName,
+        username,
+        points: 0,
+        role: isAdmin ? "Admin" : "Member",
+        isAdmin: isAdmin
+      });
       await user.save();
-      console.log("✅ New user registered:", username);
+      console.log(`✅ Registered user: ${firstName} (${isAdmin ? 'Admin' : 'Member'})`);
+    } else {
+      // Only add points if it's not a command
+      if (msg.text && !msg.text.startsWith('/')) {
+        user.points += 1;
+        await user.save();
+        console.log(`✨ ${user.name} gained a point! (${user.points})`);
+      }
     }
     // 🔽 Fix: Make sure name has a value
     const welcomeMsg = `👋 Welcome, ${name || "there"}! You are now registered to use the bot.`;
@@ -199,6 +173,9 @@ bot.onText(/\/help/, (msg) => {
 👮 *Admin Only:*
 /announce <message> - Broadcast to all users
 /users - List registered users
+/admins - List all admin users
+/removeuser <user_id> - Remove a user from the database
+/updateadmin <user_id> - Update a user's admin status
 
 ⚠️ Limit: ${MAX_REQUESTS_PER_MINUTE} questions per minute
 `;
@@ -264,14 +241,19 @@ bot.on("message", async (msg) => {
     user = await User.findOne({ telegramId });
 
     if (!user) {
+      // Check if user is an admin
+      const isAdmin = adminIds.includes(telegramId);
+      
       user = new User({
         telegramId,
         name: firstName,
         username,
-        points: 0
+        points: 0,
+        role: isAdmin ? "Admin" : "Member",
+        isAdmin: isAdmin
       });
       await user.save();
-      console.log("✅ Registered user:", firstName);
+      console.log(`✅ Registered user: ${firstName} (${isAdmin ? 'Admin' : 'Member'})`);
     } else {
       // Only add points if it's not a command
       if (msg.text && !msg.text.startsWith('/')) {
@@ -410,6 +392,132 @@ bot.onText(/\/users/, async (msg) => {
         bot.sendMessage(chatId, "⚠️ Failed to retrieve users.");
     }
 });
+
+//--------------------
+//Admins List Command
+//--------------------
+bot.onText(/\/admins/, async (msg) => {
+    const chatId = msg.chat.id;
+    const senderId = msg.from.id;
+
+    if (!adminIds.includes(senderId)) {
+        return bot.sendMessage(chatId, "🚫 You are not authorized to view admin list.");
+    }
+
+    try {
+        // Get all users with Admin role
+        const adminUsers = await User.find({ role: "Admin" });
+        
+        if (adminUsers.length === 0) {
+            return bot.sendMessage(chatId, "⚠️ No admin users found.");
+        }
+
+        let adminList = "👮 *Admin Users:*\n\n";
+        adminUsers.forEach((user, index) => {
+            adminList += `🔹 ${index + 1}. ${user.name || user.username || "Unknown"} `;
+            adminList += `- ${user.email || "No email"} `;
+            adminList += `- ID: ${user.telegramId}\n`;
+        });
+
+        bot.sendMessage(chatId, adminList, { parse_mode: "Markdown" });
+    } catch (error) {
+        console.error("❌ Error fetching admin users:", error);
+        bot.sendMessage(chatId, "⚠️ Failed to retrieve admin users.");
+    }
+});
+
+//--------------------
+//Remove User Command
+//--------------------
+bot.onText(/\/removeuser (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const senderId = msg.from.id;
+    const userIdToRemove = match[1].trim();
+
+    if (!adminIds.includes(senderId)) {
+        return bot.sendMessage(chatId, "🚫 You are not authorized to remove users.");
+    }
+
+    try {
+        // Check if user exists
+        const userToRemove = await User.findOne({ telegramId: userIdToRemove });
+        
+        if (!userToRemove) {
+            return bot.sendMessage(chatId, "⚠️ User not found. Please check the user ID and try again.");
+        }
+
+        // Prevent removing yourself
+        if (userIdToRemove === senderId.toString()) {
+            return bot.sendMessage(chatId, "⚠️ You cannot remove yourself from the database.");
+        }
+
+        // Delete the user
+        await User.deleteOne({ telegramId: userIdToRemove });
+        
+        // Also delete related data
+        await ChatLog.deleteMany({ telegramId: userIdToRemove });
+        await SentimentModel.deleteMany({ telegramId: userIdToRemove });
+        
+        // If there are other models with user references, delete those too
+        // For example: await Engagement.deleteMany({ telegramId: userIdToRemove });
+        
+        bot.sendMessage(chatId, `✅ User with ID ${userIdToRemove} has been successfully removed from the database.`);
+        console.log(`✅ Admin ${senderId} removed user ${userIdToRemove}`);
+    } catch (error) {
+        console.error("❌ Error removing user:", error);
+        bot.sendMessage(chatId, "⚠️ Failed to remove user. Please try again later.");
+    }
+});
+
+//--------------------
+//Update Admin Command
+//--------------------
+bot.onText(/\/updateadmin (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const senderId = msg.from.id;
+    const userIdToUpdate = match[1].trim();
+
+    if (!adminIds.includes(senderId)) {
+        return bot.sendMessage(chatId, "🚫 You are not authorized to update admin status.");
+    }
+
+    try {
+        // Check if user exists
+        const userToUpdate = await User.findOne({ telegramId: userIdToUpdate });
+        
+        if (!userToUpdate) {
+            return bot.sendMessage(chatId, "⚠️ User not found. Please check the user ID and try again.");
+        }
+
+        // Toggle admin status
+        const isCurrentlyAdmin = adminIds.includes(parseInt(userIdToUpdate));
+        
+        if (isCurrentlyAdmin) {
+            // Remove from admin list
+            const index = adminIds.indexOf(parseInt(userIdToUpdate));
+            if (index > -1) {
+                adminIds.splice(index, 1);
+            }
+            userToUpdate.role = "Member";
+            userToUpdate.isAdmin = false;
+            await userToUpdate.save();
+            bot.sendMessage(chatId, `✅ User with ID ${userIdToUpdate} has been removed from admin privileges.`);
+        } else {
+            // Add to admin list
+            adminIds.push(parseInt(userIdToUpdate));
+            userToUpdate.role = "Admin";
+            userToUpdate.isAdmin = true;
+            await userToUpdate.save();
+            bot.sendMessage(chatId, `✅ User with ID ${userIdToUpdate} has been granted admin privileges.`);
+        }
+        
+        console.log(`✅ Admin ${senderId} updated admin status for user ${userIdToUpdate}`);
+    } catch (error) {
+        console.error("❌ Error updating admin status:", error);
+        bot.sendMessage(chatId, "⚠️ Failed to update admin status. Please try again later.");
+    }
+});
+
 //--------------------
 //User Profile Command
 //--------------------
@@ -474,19 +582,10 @@ bot.onText(/\/ask (.+)/, async (msg, match) => {
   const chatId = msg.chat.id;
   const telegramId = msg.from.id;
   const userMessage = match[1].trim();
-  const aiResponse = await callAiApi(userMessage);
-  bot.sendMessage(chatId, aiResponse);
-
-
+  
   // Rate Limiting
   const currentTime = Date.now();
   const userTimestamps = rateLimitMap.get(telegramId) || [];
-
-  if (!aiResponse || aiResponse.trim() === "") {
-    return bot.sendMessage(chatId, "⚠️ AI didn't return a valid response. Please try again.");
-  }
-  bot.sendMessage(chatId, aiResponse);
-  
 
   // Remove old timestamps (older than 1 minute)
   const recentTimestamps = userTimestamps.filter(ts => currentTime - ts < 60000);
@@ -497,11 +596,45 @@ bot.onText(/\/ask (.+)/, async (msg, match) => {
   // Update rateLimitMap
   recentTimestamps.push(currentTime);
   rateLimitMap.set(telegramId, recentTimestamps);
-
-  // Process request
-  bot.sendMessage(chatId, "💭 Thinking...");
-  const reply = await callAiApi(userMessage);
-  bot.sendMessage(chatId, `🤖 ${reply}`);
+  
+  let thinkingMsg;
+  try {
+    // Send thinking message
+    thinkingMsg = await bot.sendMessage(chatId, "💭 Thinking...");
+    
+    // Get AI response using the new service
+    const aiResponse = await callAiApi(userMessage, chatId, OPENROUTER_API_KEY, HUGGINGFACE_API_KEY);
+    
+    // Delete thinking message
+    if (thinkingMsg) {
+      await bot.deleteMessage(chatId, thinkingMsg.message_id).catch(console.error);
+    }
+    
+    if (!aiResponse || aiResponse.trim() === "") {
+      return bot.sendMessage(chatId, "⚠️ AI didn't return a valid response. Please try again.");
+    }
+    
+    // Send the response only once with Markdown formatting
+    await bot.sendMessage(chatId, aiResponse, { parse_mode: "Markdown" });
+    
+    // Update user stats
+    try {
+      await UserStats.findOneAndUpdate(
+        { userId: telegramId },
+        { $inc: { aiRequests: 1 } },
+        { upsert: true }
+      );
+    } catch (err) {
+      console.error("Error updating user stats:", err);
+    }
+  } catch (error) {
+    console.error("Error in /ask command:", error);
+    // Delete thinking message if it exists
+    if (thinkingMsg) {
+      await bot.deleteMessage(chatId, thinkingMsg.message_id).catch(console.error);
+    }
+    await bot.sendMessage(chatId, "❌ An error occurred while processing your request. Please try again later.");
+  }
 });
 
 // -----------------------------------------
